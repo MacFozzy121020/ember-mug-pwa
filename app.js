@@ -16,12 +16,16 @@ class EmberControllerApp {
     this.presets = this._loadPresets();
     this.pendingTargetC = 57.0;
     this.sliderDebounce = null;
+    this.swRegistration = null;
+    this.waitingWorker = null;
+    this.isRefreshing = false;
 
     this._cacheDom();
     this._bindEvents();
     this._renderPresets();
     this._updateUnitUI();
     this._renderState(this.ble.state);
+    this._initServiceWorkerUpdates();
 
     // Attempt automatic reconnect to previously paired mug if supported
     this.ble.tryRestorePairedDevice();
@@ -86,6 +90,12 @@ class EmberControllerApp {
       closeModalBtn: document.getElementById('close-modal-btn'),
       logContainer: document.getElementById('ble-log'),
       clearLogBtn: document.getElementById('clear-log-btn'),
+
+      // App Update & Refresh Controls
+      updateBanner: document.getElementById('update-banner'),
+      applyUpdateBtn: document.getElementById('apply-update-btn'),
+      dismissUpdateBtn: document.getElementById('dismiss-update-btn'),
+      refreshAppBtn: document.getElementById('refresh-app-btn'),
     };
   }
 
@@ -197,6 +207,25 @@ class EmberControllerApp {
     this.els.clearLogBtn.addEventListener('click', () => {
       this.els.logContainer.innerHTML = '';
     });
+
+    // Update Banner & Manual Refresh Actions
+    if (this.els.applyUpdateBtn) {
+      this.els.applyUpdateBtn.addEventListener('click', () => {
+        this.applyPendingUpdate();
+      });
+    }
+
+    if (this.els.dismissUpdateBtn) {
+      this.els.dismissUpdateBtn.addEventListener('click', () => {
+        this.els.updateBanner.classList.add('hidden');
+      });
+    }
+
+    if (this.els.refreshAppBtn) {
+      this.els.refreshAppBtn.addEventListener('click', () => {
+        this.checkForUpdatesAndRefresh();
+      });
+    }
   }
 
   setUnit(unit) {
@@ -452,12 +481,127 @@ class EmberControllerApp {
     row.innerHTML = `<span class="log-time">[${entry.timestamp}]</span> <span class="log-msg">${entry.message}</span>`;
     this.els.logContainer.prepend(row);
   }
+
+  async _initServiceWorkerUpdates() {
+    if (!('serviceWorker' in navigator)) return;
+
+    // Reload page once the new Service Worker takes control
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (this.isRefreshing) return;
+      this.isRefreshing = true;
+      window.location.reload();
+    });
+
+    // Listen for messages from notification clicks in sw.js
+    navigator.serviceWorker.addEventListener('message', (event) => {
+      if (event.data && event.data.type === 'APPLY_UPDATE') {
+        this.applyPendingUpdate();
+      }
+    });
+
+    try {
+      const reg = await navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' });
+      this.swRegistration = reg;
+
+      // If an updated worker is already waiting
+      if (reg.waiting) {
+        this._onNewWorkerWaiting(reg.waiting);
+      }
+
+      // Detect newly installed workers
+      reg.addEventListener('updatefound', () => {
+        const newWorker = reg.installing;
+        if (!newWorker) return;
+        newWorker.addEventListener('statechange', () => {
+          if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+            this._onNewWorkerWaiting(newWorker);
+          }
+        });
+      });
+
+      // Automatically check for updates when user returns to the app tab/PWA
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+          reg.update().catch(() => {});
+        }
+      });
+
+      // Periodic update check every 5 minutes
+      setInterval(() => {
+        reg.update().catch(() => {});
+      }, 5 * 60 * 1000);
+    } catch (err) {
+      // Service worker registration failed or unsupported context
+    }
+  }
+
+  _onNewWorkerWaiting(worker) {
+    this.waitingWorker = worker;
+    if (this.els.updateBanner) {
+      this.els.updateBanner.classList.remove('hidden');
+    }
+    this.ble.log('A new app update is ready! Tap "Refresh Now" to update.', 'success');
+
+    // Also fire a system notification if permission was granted
+    if ('Notification' in window && Notification.permission === 'granted' && this.swRegistration) {
+      this.swRegistration
+        .showNotification('Ember Control Update Ready', {
+          body: 'Tap to refresh the app to the latest version.',
+          icon: './icon.svg',
+          tag: 'ember-app-update',
+        })
+        .catch(() => {});
+    }
+  }
+
+  applyPendingUpdate() {
+    if (this.waitingWorker) {
+      this.waitingWorker.postMessage({ type: 'SKIP_WAITING' });
+      setTimeout(() => {
+        if (!this.isRefreshing) {
+          this.isRefreshing = true;
+          window.location.reload();
+        }
+      }, 600);
+    } else {
+      window.location.reload();
+    }
+  }
+
+  async checkForUpdatesAndRefresh() {
+    if (this.els.refreshAppBtn) {
+      this.els.refreshAppBtn.classList.add('spinning');
+    }
+    this.ble.log('Checking for app updates...');
+
+    // Request notification permission if not asked yet so future updates can alert the user
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => {});
+    }
+
+    try {
+      if (this.swRegistration) {
+        await this.swRegistration.update();
+        if (this.swRegistration.waiting) {
+          this.waitingWorker = this.swRegistration.waiting;
+          this.applyPendingUpdate();
+          return;
+        }
+      }
+
+      // Clear old caches and force a clean reload to pick up any fresh assets
+      if ('caches' in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((k) => caches.delete(k)));
+      }
+    } catch (e) {
+      // Ignore network errors and reload anyway
+    }
+
+    window.location.reload();
+  }
 }
 
 window.addEventListener('DOMContentLoaded', () => {
   window.emberApp = new EmberControllerApp();
-
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js').catch(() => {});
-  }
 });

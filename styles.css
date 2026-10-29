@@ -116,6 +116,114 @@ body {
   50% { opacity: 0.3; }
 }
 
+/* Update Notification Banner */
+.update-banner {
+  background: linear-gradient(135deg, rgba(249, 115, 22, 0.22), rgba(234, 88, 12, 0.14));
+  border: 1px solid rgba(249, 115, 22, 0.5);
+  border-radius: var(--radius-md);
+  padding: 11px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 0.82rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  animation: slideDown 0.25s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.update-banner-text {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-main);
+}
+
+.update-badge-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--amber-primary);
+  box-shadow: 0 0 8px var(--amber-primary);
+  flex-shrink: 0;
+}
+
+.update-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.btn-update-now {
+  background: var(--amber-primary);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 11px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.btn-update-dismiss {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.2rem;
+  line-height: 1;
+  padding: 2px 4px;
+  cursor: pointer;
+}
+
+/* Header Controls & Refresh Icon Button */
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.icon-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.icon-btn:hover,
+.icon-btn:active {
+  color: var(--amber-glow);
+  border-color: rgba(249, 115, 22, 0.4);
+}
+
+.icon-btn.spinning svg {
+  animation: spin 0.7s linear infinite;
+  color: var(--amber-primary);
+}
+
+@keyframes spin {
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
 /* Unit Switch */
 .unit-switch {
   display: flex;

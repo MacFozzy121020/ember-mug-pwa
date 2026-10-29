@@ -13,6 +13,18 @@
 </head>
 <body>
   <div class="app-shell">
+    <!-- App Update Notification Banner -->
+    <div id="update-banner" class="update-banner hidden" role="status" aria-live="polite">
+      <div class="update-banner-text">
+        <span class="update-badge-dot"></span>
+        <span><strong>Update available!</strong> A new version of Ember Control is ready.</span>
+      </div>
+      <div class="update-banner-actions">
+        <button type="button" id="apply-update-btn" class="btn-update-now">Refresh Now</button>
+        <button type="button" id="dismiss-update-btn" class="btn-update-dismiss" aria-label="Dismiss update notice">×</button>
+      </div>
+    </div>
+
     <!-- Top Header -->
     <header class="top-bar">
       <div class="brand">
@@ -26,9 +38,25 @@
         </div>
       </div>
 
-      <div class="unit-switch" role="group" aria-label="Temperature Unit">
-        <button type="button" id="unit-f-btn" class="unit-btn active">°F</button>
-        <button type="button" id="unit-c-btn" class="unit-btn">°C</button>
+      <div class="header-controls">
+        <button
+          type="button"
+          id="refresh-app-btn"
+          class="icon-btn"
+          title="Check for updates & refresh app"
+          aria-label="Check for updates and refresh app"
+        >
+          <svg viewBox="0 0 24 24" width="17" height="17" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 4 23 10 17 10"></polyline>
+            <polyline points="1 20 1 14 7 14"></polyline>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+          </svg>
+        </button>
+
+        <div class="unit-switch" role="group" aria-label="Temperature Unit">
+          <button type="button" id="unit-f-btn" class="unit-btn active">°F</button>
+          <button type="button" id="unit-c-btn" class="unit-btn">°C</button>
+        </div>
       </div>
     </header>
 
