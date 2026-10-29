@@ -485,16 +485,14 @@ class EmberControllerApp {
   async _initServiceWorkerUpdates() {
     if (!('serviceWorker' in navigator)) return;
 
-    // Reload page once the new Service Worker takes control
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (this.isRefreshing) return;
-      this.isRefreshing = true;
-      window.location.reload();
-    });
+    const hadController = Boolean(navigator.serviceWorker.controller);
 
-    // Listen for messages from notification clicks in sw.js
+    // Listen for messages from sw.js (new version activated or notification clicked)
     navigator.serviceWorker.addEventListener('message', (event) => {
-      if (event.data && event.data.type === 'APPLY_UPDATE') {
+      if (!event.data) return;
+      if (event.data.type === 'SW_UPDATED' && hadController) {
+        this._onNewWorkerWaiting(null);
+      } else if (event.data.type === 'APPLY_UPDATE') {
         this.applyPendingUpdate();
       }
     });
@@ -503,8 +501,8 @@ class EmberControllerApp {
       const reg = await navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' });
       this.swRegistration = reg;
 
-      // If an updated worker is already waiting
-      if (reg.waiting) {
+      // If an updated worker is waiting
+      if (reg.waiting && hadController) {
         this._onNewWorkerWaiting(reg.waiting);
       }
 
@@ -513,7 +511,7 @@ class EmberControllerApp {
         const newWorker = reg.installing;
         if (!newWorker) return;
         newWorker.addEventListener('statechange', () => {
-          if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+          if (newWorker.state === 'installed' && hadController) {
             this._onNewWorkerWaiting(newWorker);
           }
         });
@@ -536,7 +534,12 @@ class EmberControllerApp {
   }
 
   _onNewWorkerWaiting(worker) {
-    this.waitingWorker = worker;
+    if (worker) {
+      this.waitingWorker = worker;
+    }
+    if (this.els.updateBanner && !this.els.updateBanner.classList.contains('hidden')) {
+      return; // Banner already visible
+    }
     if (this.els.updateBanner) {
       this.els.updateBanner.classList.remove('hidden');
     }
@@ -582,17 +585,6 @@ class EmberControllerApp {
     try {
       if (this.swRegistration) {
         await this.swRegistration.update();
-        if (this.swRegistration.waiting) {
-          this.waitingWorker = this.swRegistration.waiting;
-          this.applyPendingUpdate();
-          return;
-        }
-      }
-
-      // Clear old caches and force a clean reload to pick up any fresh assets
-      if ('caches' in window) {
-        const keys = await caches.keys();
-        await Promise.all(keys.map((k) => caches.delete(k)));
       }
     } catch (e) {
       // Ignore network errors and reload anyway

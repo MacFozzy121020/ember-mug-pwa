@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ember-pwa-v3';
+const CACHE_NAME = 'ember-pwa-v4';
 const ASSETS = [
   './',
   './index.html',
@@ -12,7 +12,6 @@ const ASSETS = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      // Fetch fresh copies from network during install
       return Promise.all(
         ASSETS.map((url) =>
           fetch(url, { cache: 'reload' })
@@ -22,15 +21,24 @@ self.addEventListener('install', (event) => {
       );
     })
   );
+  // Activate immediately so installed v1/v2 PWAs don't get stuck waiting
+  self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
-    )
+    (async () => {
+      const keys = await caches.keys();
+      await Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)));
+      await self.clients.claim();
+
+      // Notify all open PWA windows that a new version has been installed and cached
+      const clientList = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      for (const client of clientList) {
+        client.postMessage({ type: 'SW_UPDATED', version: CACHE_NAME });
+      }
+    })()
   );
-  self.clients.claim();
 });
 
 self.addEventListener('message', (event) => {
