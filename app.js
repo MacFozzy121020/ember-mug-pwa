@@ -395,12 +395,20 @@ class EmberControllerApp {
 
     // Liquid State & Ring Animation
     const liqInfo = LIQUID_STATES[state.liquidState] || LIQUID_STATES[0];
-    this.els.liquidStateText.textContent = isConnected || this.demoMode ? liqInfo.label : 'Tap Connect to pair';
-    this.els.dialCard.dataset.liquidState = isConnected || this.demoMode ? liqInfo.stateClass : 'idle';
+    if (isConnected || this.demoMode) {
+      this.els.liquidStateText.textContent = liqInfo.label;
+      this.els.dialCard.dataset.liquidState = liqInfo.stateClass;
+    } else if (isReconnecting) {
+      this.els.liquidStateText.textContent = 'Restoring connection...';
+      this.els.dialCard.dataset.liquidState = liqInfo.stateClass || 'idle';
+    } else {
+      this.els.liquidStateText.textContent = 'Tap Connect to pair';
+      this.els.dialCard.dataset.liquidState = 'idle';
+    }
 
     // Ring gauge progress (35°C to 65°C range mapped to SVG stroke-dashoffset)
     const circumference = 2 * Math.PI * 110; // r=110 => ~691.15
-    if ((isConnected || this.demoMode) && state.currentTempC !== null) {
+    if (state.currentTempC !== null) {
       const normalized = Math.max(0, Math.min(1, (state.currentTempC - 30) / (65 - 30)));
       const offset = circumference * (1 - normalized);
       this.els.ringProgress.style.strokeDashoffset = `${offset}`;
@@ -497,6 +505,16 @@ class EmberControllerApp {
       }
     });
 
+    // Automatically resume BLE link & check for updates when user returns to the app
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        this.ble.handleAppResume();
+        if (this.swRegistration) {
+          this.swRegistration.update().catch(() => {});
+        }
+      }
+    });
+
     try {
       const reg = await navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' });
       this.swRegistration = reg;
@@ -515,13 +533,6 @@ class EmberControllerApp {
             this._onNewWorkerWaiting(newWorker);
           }
         });
-      });
-
-      // Automatically check for updates when user returns to the app tab/PWA
-      document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible') {
-          reg.update().catch(() => {});
-        }
       });
 
       // Periodic update check every 5 minutes
@@ -575,7 +586,6 @@ class EmberControllerApp {
     if (this.els.refreshAppBtn) {
       this.els.refreshAppBtn.classList.add('spinning');
     }
-    this.ble.log('Checking for app updates...');
 
     // Request notification permission if not asked yet so future updates can alert the user
     if ('Notification' in window && Notification.permission === 'default') {
@@ -583,14 +593,33 @@ class EmberControllerApp {
     }
 
     try {
+      // 1. Sync or restore Bluetooth telemetry WITHOUT reloading the page or dropping BLE
+      if (this.ble.state.connected) {
+        this.ble.log('Syncing mug telemetry & checking for app updates...');
+        await this.ble.refreshAll(true);
+      } else if (!this.demoMode) {
+        this.ble.log('Checking for app updates & attempting mug reconnect...');
+        this.ble.handleAppResume().catch(() => {});
+      }
+
+      // 2. Check Service Worker for new app versions in the background
       if (this.swRegistration) {
         await this.swRegistration.update();
+        if (this.swRegistration.waiting) {
+          this._onNewWorkerWaiting(this.swRegistration.waiting);
+        } else {
+          this.ble.log('App is already on the latest version.', 'success');
+        }
       }
     } catch (e) {
-      // Ignore network errors and reload anyway
+      // Ignore transient network errors
+    } finally {
+      setTimeout(() => {
+        if (this.els.refreshAppBtn) {
+          this.els.refreshAppBtn.classList.remove('spinning');
+        }
+      }, 500);
     }
-
-    window.location.reload();
   }
 }
 

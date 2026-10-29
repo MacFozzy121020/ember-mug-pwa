@@ -51,28 +51,58 @@ export class EmberBluetoothClient extends EventTarget {
     this.isConnecting = false;
     this.manualDisconnect = false;
     this.reconnectAttempts = 0;
-    this.maxReconnectAttempts = 12;
+    this.maxReconnectAttempts = 20;
     this.reconnectTimer = null;
     this.pollTimer = null;
+    this.wakeLock = null;
+    this.abortController = null;
     this.operationQueue = Promise.resolve();
 
+    const cached = this._loadCachedState();
     this.state = {
       connected: false,
       reconnecting: false,
-      deviceName: 'Ember Mug',
-      currentTempC: null,
-      targetTempC: null,
-      unit: 'C', // 'C' or 'F'
-      batteryPercent: null,
-      isCharging: false,
-      liquidState: 0,
+      deviceName: cached.deviceName || 'Ember Mug',
+      currentTempC: cached.currentTempC ?? null,
+      targetTempC: cached.targetTempC ?? null,
+      unit: cached.unit || 'C', // 'C' or 'F'
+      batteryPercent: cached.batteryPercent ?? null,
+      isCharging: cached.isCharging ?? false,
+      liquidState: cached.liquidState ?? 0,
       liquidLevel: null,
       ledColor: null, // { r, g, b, a }
-      lastUpdated: null,
+      lastUpdated: cached.lastUpdated ? new Date(cached.lastUpdated) : null,
     };
 
     this._onDisconnected = this._onDisconnected.bind(this);
     this._onPushEvent = this._onPushEvent.bind(this);
+  }
+
+  _loadCachedState() {
+    try {
+      const raw = localStorage.getItem('ember_last_state');
+      if (raw) return JSON.parse(raw);
+    } catch (e) {}
+    return {};
+  }
+
+  _saveCachedState() {
+    try {
+      if (this.state.currentTempC === null && this.state.targetTempC === null) return;
+      localStorage.setItem(
+        'ember_last_state',
+        JSON.stringify({
+          deviceName: this.state.deviceName,
+          currentTempC: this.state.currentTempC,
+          targetTempC: this.state.targetTempC,
+          unit: this.state.unit,
+          batteryPercent: this.state.batteryPercent,
+          isCharging: this.state.isCharging,
+          liquidState: this.state.liquidState,
+          lastUpdated: this.state.lastUpdated ? this.state.lastUpdated.toISOString() : null,
+        })
+      );
+    } catch (e) {}
   }
 
   log(message, level = 'info') {
@@ -85,7 +115,10 @@ export class EmberBluetoothClient extends EventTarget {
   }
 
   emitState() {
-    this.state.lastUpdated = new Date();
+    if (this.state.connected) {
+      this.state.lastUpdated = new Date();
+      this._saveCachedState();
+    }
     this.dispatchEvent(new CustomEvent('statechange', { detail: { ...this.state } }));
   }
 
@@ -99,15 +132,27 @@ export class EmberBluetoothClient extends EventTarget {
   }
 
   /**
-   * Request device via Web Bluetooth picker
+   * Request device via Web Bluetooth picker (or fast-reconnect if device is already known in session)
    */
-  async requestAndConnect() {
+  async requestAndConnect(forcePicker = false) {
     if (!navigator.bluetooth) {
       throw new Error('Web Bluetooth is not supported in this browser. Use Chrome on Android or Desktop.');
     }
 
     this.manualDisconnect = false;
+    this.reconnectAttempts = 0;
     this._clearTimers();
+
+    // If we already have a device reference in memory and don't need to force the picker, try reconnecting directly first
+    if (this.device && !forcePicker) {
+      this.log(`Reconnecting directly to ${this.state.deviceName}...`);
+      try {
+        await this.connectGatt();
+        if (this.state.connected) return;
+      } catch (e) {
+        // Fall through to picker if direct reconnect failed
+      }
+    }
 
     this.log('Opening Bluetooth device chooser...');
     try {
@@ -129,6 +174,7 @@ export class EmberBluetoothClient extends EventTarget {
 
   /**
    * Try to reconnect to previously permitted devices if browser supports getDevices()
+   * (Requires chrome://flags/#enable-web-bluetooth-new-permissions-backend on Android Chrome)
    */
   async tryRestorePairedDevice() {
     if (!navigator.bluetooth || typeof navigator.bluetooth.getDevices !== 'function') {
@@ -136,17 +182,91 @@ export class EmberBluetoothClient extends EventTarget {
     }
     try {
       const devices = await navigator.bluetooth.getDevices();
+      if (!devices || devices.length === 0) return false;
+
       const ember = devices.find((d) => d.name && d.name.startsWith('Ember')) || devices[0];
-      if (ember) {
-        this.log(`Found previously paired mug: ${ember.name || ember.id}`);
-        this.AttachDevice(ember);
-        await this.connectGatt();
-        return true;
+      if (!ember) return false;
+
+      this.log(`Found remembered mug (${ember.name || 'Ember Mug'}). Restoring connection...`);
+      this.AttachDevice(ember);
+      this.state.reconnecting = true;
+      this.emitState();
+
+      // In Chrome Web Bluetooth, restored devices from getDevices() often require watchAdvertisements()
+      // before gatt.connect() is allowed after a page reload.
+      if (typeof ember.watchAdvertisements === 'function') {
+        try {
+          if (this.abortController) this.abortController.abort();
+          this.abortController = new AbortController();
+
+          const onAdv = async () => {
+            ember.removeEventListener('advertisementreceived', onAdv);
+            if (this.abortController) {
+              try {
+                this.abortController.abort();
+              } catch (e) {}
+            }
+            if (!this.state.connected && !this.isConnecting && !this.manualDisconnect) {
+              this.log('Detected mug advertisement packet; connecting GATT...');
+              await this.connectGatt();
+            }
+          };
+
+          ember.addEventListener('advertisementreceived', onAdv, { once: true });
+          await ember.watchAdvertisements({ signal: this.abortController.signal });
+        } catch (advErr) {
+          // watchAdvertisements may not be needed or supported on all platforms
+        }
       }
+
+      await this.connectGatt();
+      return true;
     } catch (err) {
-      this.log(`Could not auto-restore device: ${err.message}`, 'warn');
+      this.log(`Auto-restore note: ${err.message}`, 'warn');
     }
     return false;
+  }
+
+  /**
+   * Called when the PWA returns to foreground or phone screen unlocks
+   */
+  async handleAppResume() {
+    if (this.manualDisconnect) return;
+
+    if (this.state.connected && this.device && this.device.gatt && this.device.gatt.connected) {
+      this._requestWakeLock();
+      this.refreshAll(true).catch(() => {});
+      return;
+    }
+
+    if (this.device && !this.isConnecting) {
+      this.log('App resumed — restoring Bluetooth link to mug...');
+      this.reconnectAttempts = 0;
+      await this.connectGatt();
+    } else if (!this.device) {
+      await this.tryRestorePairedDevice();
+    }
+  }
+
+  async _requestWakeLock() {
+    if (!('wakeLock' in navigator) || document.visibilityState !== 'visible') return;
+    try {
+      if (!this.wakeLock) {
+        this.wakeLock = await navigator.wakeLock.request('screen');
+        this.wakeLock.addEventListener('release', () => {
+          this.wakeLock = null;
+        });
+      }
+    } catch (e) {}
+  }
+
+  async _releaseWakeLock() {
+    if (this.wakeLock) {
+      try {
+        await this.wakeLock.release();
+      } catch (e) {}
+      this.wakeLock = null;
+    }
   }
 
   AttachDevice(device) {
@@ -192,6 +312,7 @@ export class EmberBluetoothClient extends EventTarget {
 
       // Start Pixel keep-alive & polling loop (every 6 seconds)
       this._startPolling();
+      this._requestWakeLock();
       this.log('Mug ready and active keep-alive started.', 'success');
     } catch (err) {
       this.log(`Connection error: ${err.message}`, 'error');
@@ -343,6 +464,7 @@ export class EmberBluetoothClient extends EventTarget {
   async disconnect() {
     this.manualDisconnect = true;
     this._clearTimers();
+    this._releaseWakeLock();
     if (this.device && this.device.gatt.connected) {
       this.device.gatt.disconnect();
     }
