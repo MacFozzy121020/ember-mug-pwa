@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#12100e" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>Ember Control — Pixel BLE Edition</title>
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <!-- Top Header -->
+    <header class="top-bar">
+      <div class="brand">
+        <div class="brand-logo" aria-hidden="true">☕</div>
+        <div>
+          <h1 id="device-name">Ember Mug</h1>
+          <div id="connection-pill" class="status-pill">
+            <span id="status-dot" class="status-dot"></span>
+            <span id="status-text">Disconnected</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="unit-switch" role="group" aria-label="Temperature Unit">
+        <button type="button" id="unit-f-btn" class="unit-btn active">°F</button>
+        <button type="button" id="unit-c-btn" class="unit-btn">°C</button>
+      </div>
+    </header>
+
+    <!-- Primary Connection Actions -->
+    <div class="action-bar">
+      <button type="button" id="connect-btn" class="btn-primary">
+        <svg class="bt-icon" viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2.2" fill="none">
+          <polyline points="6.5 6.5 17.5 17.5 12 23 12 1 17.5 6.5 6.5 17.5"></polyline>
+        </svg>
+        <span id="connect-btn-text">Connect Ember Mug</span>
+      </button>
+      <button type="button" id="demo-btn" class="btn-secondary" title="Test the UI without connecting hardware">
+        Try Simulator
+      </button>
+    </div>
+
+    <!-- Main Temperature Dial Card -->
+    <section id="dial-card" class="dial-card" data-liquid-state="idle">
+      <div class="dial-wrapper">
+        <svg class="dial-svg" viewBox="0 0 260 260">
+          <defs>
+            <linearGradient id="emberGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+              <stop offset="0%" stop-color="#f97316" />
+              <stop offset="50%" stop-color="#fb923c" />
+              <stop offset="100%" stop-color="#facc15" />
+            </linearGradient>
+          </defs>
+          <!-- Background Track -->
+          <circle class="ring-track" cx="130" cy="130" r="110" />
+          <!-- Animated Progress Arc -->
+          <circle id="ring-progress" class="ring-progress" cx="130" cy="130" r="110" />
+        </svg>
+
+        <div class="dial-center">
+          <span class="dial-caption">CURRENT TEMP</span>
+          <div class="temp-readout">
+            <span id="current-temp-value">--</span>
+            <span id="current-temp-unit" class="temp-unit">°F</span>
+          </div>
+          <div id="liquid-state-badge" class="liquid-badge">
+            <span class="pulse-indicator"></span>
+            <span id="liquid-state-text">Tap Connect to pair</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Telemetry Footer inside Dial Card -->
+      <div class="telemetry-bar">
+        <div class="telemetry-item">
+          <svg id="battery-icon" viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none">
+            <rect x="2" y="7" width="16" height="10" rx="2" ry="2"></rect>
+            <line x1="22" y1="11" x2="22" y2="13"></line>
+          </svg>
+          <span>Battery: <strong id="battery-value">--%</strong></span>
+          <span id="charging-badge" class="charging-tag hidden">⚡ Coaster</span>
+        </div>
+        <div class="telemetry-item sync-info">
+          <span id="last-sync-text">Not synced yet</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Target Temperature Control Card -->
+    <section class="control-card">
+      <div class="card-header">
+        <div>
+          <h2>Target Temperature</h2>
+          <p class="card-subtitle">Adjust slider or tap +/- to set mug heater</p>
+        </div>
+        <div id="target-temp-display" class="target-temp-pill">135°F</div>
+      </div>
+
+      <div class="slider-row">
+        <button type="button" id="step-down-btn" class="stepper-btn" aria-label="Decrease target temperature">−</button>
+        <div class="slider-container">
+          <input
+            type="range"
+            id="temp-slider"
+            min="118"
+            max="145"
+            step="1"
+            value="135"
+            aria-label="Target temperature slider"
+          />
+          <div class="slider-labels">
+            <span id="slider-min-label">118°F (48°C)</span>
+            <span id="slider-max-label">145°F (63°C)</span>
+          </div>
+        </div>
+        <button type="button" id="step-up-btn" class="stepper-btn" aria-label="Increase target temperature">+</button>
+      </div>
+    </section>
+
+    <!-- Quick Presets Card -->
+    <section class="control-card">
+      <div class="card-header">
+        <div>
+          <h2>Drink Presets</h2>
+          <p class="card-subtitle">One-tap temperatures for your drinks</p>
+        </div>
+        <button type="button" id="save-preset-btn" class="btn-ghost">+ Save Current</button>
+      </div>
+
+      <div id="presets-grid" class="presets-grid"></div>
+    </section>
+
+    <!-- Google Pixel Connection Stability & Diagnostics -->
+    <section class="control-card">
+      <div class="card-header">
+        <div>
+          <h2>Pixel BLE Stability Engine</h2>
+          <p class="card-subtitle">Maintains GATT link and auto-recovers drops</p>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="auto-reconnect-toggle" checked />
+          <span class="slider-toggle"></span>
+        </label>
+      </div>
+
+      <div class="pixel-tips-banner">
+        <div>
+          <strong>Can't change temperature or keep disconnecting?</strong>
+          <p>Ember requires Bluetooth bonding on your Pixel before allowing temperature writes.</p>
+        </div>
+        <button type="button" id="pairing-help-btn" class="btn-outline">Pixel Setup Guide</button>
+      </div>
+
+      <details class="diagnostics-drawer">
+        <summary>
+          <span>Live BLE GATT Diagnostic Log</span>
+          <button type="button" id="clear-log-btn" class="btn-clear-log">Clear</button>
+        </summary>
+        <div id="ble-log" class="ble-log">
+          <div class="log-row log-info">
+            <span class="log-time">[Ready]</span>
+            <span class="log-msg">Web Bluetooth controller initialized.</span>
+          </div>
+        </div>
+      </details>
+    </section>
+  </div>
+
+  <!-- Pixel Pairing Troubleshooting Modal -->
+  <div id="pairing-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Fixing Ember Mug on Google Pixel</h3>
+        <button type="button" id="close-modal-btn" class="modal-close" aria-label="Close">×</button>
+      </div>
+      <div class="modal-body">
+        <p>Google Pixel's Android Bluetooth stack enforces strict GATT security and drops idle unbonded BLE connections. Follow these steps once for a rock-solid connection:</p>
+        <ol class="steps-list">
+          <li>
+            <strong>Force Close or Uninstall the Official Ember App:</strong>
+            The official Ember app runs a background scanner that fights for exclusive GATT control and resets your connection.
+          </li>
+          <li>
+            <strong>Put Your Ember Mug in Pairing Mode:</strong>
+            Press and hold the power button on the bottom of your mug for <strong>6–7 seconds</strong> until the LED blinks <strong>blue</strong>.
+          </li>
+          <li>
+            <strong>Bond in Pixel Bluetooth Settings (Optional but Recommended):</strong>
+            If Android shows a "Pair with Ember Ceramic Mug?" notification when connecting, tap <strong>Pair</strong>. Bonding allows writing target temperatures and enables push notifications.
+          </li>
+          <li>
+            <strong>Tap "Connect Ember Mug" in this App:</strong>
+            Select your mug from Chrome's chooser. Our built-in keep-alive engine polls every 6 seconds and automatically reconnects if the Pixel radio hiccups.
+          </li>
+        </ol>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

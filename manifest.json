@@ -1,0 +1,18 @@
+{
+  "name": "Ember Control — Pixel BLE Edition",
+  "short_name": "Ember Control",
+  "description": "Custom Web Bluetooth controller for Ember Mug with Google Pixel auto-reconnect & keep-alive.",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#110e0c",
+  "theme_color": "#110e0c",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
