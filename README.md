@@ -22,3 +22,4 @@ A lightweight, zero-dependency Progressive Web App (PWA) for controlling your **
 ## Google Pixel Setup Tips
 1. **Close or uninstall the official Ember app:** The official app runs a background BLE scanner that fights for the mug's single peripheral connection.
 2. **Pair/Bond once for temperature writes:** Hold the power button on the bottom of your Ember mug for **6–7 seconds** until the LED blinks **blue**, then tap **Connect Ember Mug** in this app and accept the Android pairing prompt.
+3. **Still blinking blue after connecting?** Once the app shows **Connected**, press the power button on the bottom of the mug **once briefly (1 second)** to exit blue pairing mode and return the LED to normal.
