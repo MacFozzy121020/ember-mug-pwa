@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ember-pwa-v6';
+const CACHE_NAME = 'ember-pwa-v7';
 const ASSETS = [
   './',
   './index.html',

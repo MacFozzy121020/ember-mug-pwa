@@ -96,6 +96,14 @@ class EmberControllerApp {
       applyUpdateBtn: document.getElementById('apply-update-btn'),
       dismissUpdateBtn: document.getElementById('dismiss-update-btn'),
       refreshAppBtn: document.getElementById('refresh-app-btn'),
+
+      // Battery & Coaster Diagnostics
+      battDiagBadge: document.getElementById('batt-diag-badge'),
+      diagChargeRate: document.getElementById('diag-charge-rate'),
+      diagCoasterDropouts: document.getElementById('diag-coaster-dropouts'),
+      diagLiquidLevel: document.getElementById('diag-liquid-level'),
+      diagRawInfo: document.getElementById('diag-raw-info'),
+      battDiagFindings: document.getElementById('batt-diag-findings'),
     };
   }
 
@@ -420,6 +428,42 @@ class EmberControllerApp {
       this.els.lastSyncText.textContent = `Synced ${state.lastUpdated.toLocaleTimeString()}`;
     } else {
       this.els.lastSyncText.textContent = 'Not synced yet';
+    }
+
+    // Battery & Coaster Diagnostics Panel
+    this._renderBatteryDiagnostics();
+  }
+
+  _renderBatteryDiagnostics() {
+    if (!this.els.battDiagBadge) return;
+    const diag = this.ble.getBatteryDiagnostics();
+
+    this.els.battDiagBadge.className = `diag-badge ${diag.statusLevel}`;
+    this.els.battDiagBadge.textContent =
+      diag.statusLevel === 'warn'
+        ? 'Attention Needed'
+        : diag.statusLevel === 'good'
+        ? 'Healthy'
+        : 'Waiting';
+
+    if (this.els.diagChargeRate) {
+      this.els.diagChargeRate.textContent = diag.rateText;
+    }
+    if (this.els.diagCoasterDropouts) {
+      this.els.diagCoasterDropouts.textContent =
+        diag.coasterDropouts === 0 ? '0 dropouts (Solid)' : `${diag.coasterDropouts} dropout(s)`;
+    }
+    if (this.els.diagLiquidLevel) {
+      const lvl = diag.liquidLevel !== null && diag.liquidLevel !== undefined ? `${diag.liquidLevel}/30` : 'N/A';
+      this.els.diagLiquidLevel.textContent = `${diag.liquidStateLabel} (${lvl})`;
+    }
+    if (this.els.diagRawInfo) {
+      this.els.diagRawInfo.textContent = `${diag.firmwareVersion} [${diag.rawBatteryBytes}]`;
+    }
+    if (this.els.battDiagFindings) {
+      this.els.battDiagFindings.innerHTML = diag.findings
+        .map((f, idx) => `<p>${idx === 0 ? `<strong>${diag.summaryTitle}:</strong> ` : ''}${f}</p>`)
+        .join('');
     }
   }
 

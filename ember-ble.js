@@ -12,8 +12,10 @@ export const EMBER_CHARS = {
   TARGET_TEMP:  'fc540003-236c-4c94-8fa9-944a3e5353fa',
   TEMP_UNIT:    'fc540004-236c-4c94-8fa9-944a3e5353fa',
   LIQUID_LEVEL: 'fc540005-236c-4c94-8fa9-944a3e5353fa',
+  TIME_INFO:    'fc540006-236c-4c94-8fa9-944a3e5353fa',
   BATTERY:      'fc540007-236c-4c94-8fa9-944a3e5353fa',
   LIQUID_STATE: 'fc540008-236c-4c94-8fa9-944a3e5353fa',
+  OTA_INFO:     'fc54000c-236c-4c94-8fa9-944a3e5353fa',
   PUSH_EVENT:   'fc540012-236c-4c94-8fa9-944a3e5353fa',
   LED_COLOR:    'fc540014-236c-4c94-8fa9-944a3e5353fa',
 };
@@ -69,9 +71,13 @@ export class EmberBluetoothClient extends EventTarget {
       batteryPercent: cached.batteryPercent ?? null,
       isCharging: cached.isCharging ?? false,
       liquidState: cached.liquidState ?? 0,
-      liquidLevel: null,
+      liquidLevel: cached.liquidLevel ?? null,
+      firmwareVersion: cached.firmwareVersion ?? null,
       ledColor: null, // { r, g, b, a }
       lastUpdated: cached.lastUpdated ? new Date(cached.lastUpdated) : null,
+      coasterDropouts: 0,
+      batteryHistory: this._loadBatteryHistory(),
+      rawBatteryBytes: null,
     };
 
     this._onDisconnected = this._onDisconnected.bind(this);
@@ -84,6 +90,41 @@ export class EmberBluetoothClient extends EventTarget {
       if (raw) return JSON.parse(raw);
     } catch (e) {}
     return {};
+  }
+
+  _loadBatteryHistory() {
+    try {
+      const raw = localStorage.getItem('ember_battery_history');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        // Keep last 3 hours of samples
+        const cutoff = Date.now() - 3 * 60 * 60 * 1000;
+        return Array.isArray(parsed) ? parsed.filter((p) => p.ts >= cutoff) : [];
+      }
+    } catch (e) {}
+    return [];
+  }
+
+  _recordBatterySample(percent, isCharging) {
+    if (percent === null || percent === undefined) return;
+    const now = Date.now();
+    const history = this.state.batteryHistory || [];
+    const last = history[history.length - 1];
+
+    // Record if percent changed, charging changed, or at least 60s elapsed
+    if (!last || last.percent !== percent || last.isCharging !== isCharging || now - last.ts >= 60000) {
+      history.push({
+        ts: now,
+        percent,
+        isCharging,
+        liquidState: this.state.liquidState,
+      });
+      const cutoff = now - 3 * 60 * 60 * 1000;
+      this.state.batteryHistory = history.filter((p) => p.ts >= cutoff).slice(-90);
+      try {
+        localStorage.setItem('ember_battery_history', JSON.stringify(this.state.batteryHistory));
+      } catch (e) {}
+    }
   }
 
   _saveCachedState() {
@@ -477,10 +518,14 @@ export class EmberBluetoothClient extends EventTarget {
     if (!silent) this.log('Reading mug telemetry...');
     await this.readCurrentTemp();
     await this.readTargetTemp();
-    await this.readBattery();
     await this.readLiquidState();
+    await this.readLiquidLevel();
+    await this.readBattery();
     await this.readTempUnit();
     await this.readLedColor();
+    if (this.state.firmwareVersion === null) {
+      await this.readOtaInfo();
+    }
   }
 
   async _readChar(uuid) {
@@ -555,12 +600,174 @@ export class EmberBluetoothClient extends EventTarget {
     try {
       const view = await this._readChar(EMBER_CHARS.BATTERY);
       if (!view || view.byteLength < 1) return;
-      this.state.batteryPercent = view.getUint8(0);
-      if (view.byteLength >= 2) {
-        this.state.isCharging = view.getUint8(1) === 1;
+      const prevCharging = this.state.isCharging;
+      const pct = view.getUint8(0);
+      const charging = view.byteLength >= 2 ? view.getUint8(1) === 1 : prevCharging;
+
+      // Capture raw hex bytes for diagnostics
+      const bytes = [];
+      for (let i = 0; i < view.byteLength; i++) {
+        bytes.push(view.getUint8(i).toString(16).padStart(2, '0'));
       }
+      this.state.rawBatteryBytes = bytes.join(' ');
+
+      if (prevCharging === true && charging === false) {
+        this.state.coasterDropouts = (this.state.coasterDropouts || 0) + 1;
+        this.log(`Coaster contact dropout detected (#${this.state.coasterDropouts})`, 'warn');
+      }
+
+      this.state.batteryPercent = pct;
+      this.state.isCharging = charging;
+      this._recordBatterySample(pct, charging);
       this.emitState();
     } catch (e) {}
+  }
+
+  /**
+   * Read Firmware / OTA info (fc54000c)
+   */
+  async readOtaInfo() {
+    try {
+      const view = await this._readChar(EMBER_CHARS.OTA_INFO);
+      if (!view || view.byteLength < 2) return;
+      const fw = view.getUint16(0, true);
+      const hw = view.byteLength >= 4 ? view.getUint16(2, true) : null;
+      this.state.firmwareVersion = hw !== null ? `v${fw} (HW ${hw})` : `v${fw}`;
+      this.emitState();
+    } catch (e) {}
+  }
+
+  /**
+   * Compute live battery health & charging diagnostics
+   */
+  getBatteryDiagnostics() {
+    const {
+      batteryPercent,
+      isCharging,
+      liquidState,
+      liquidLevel,
+      currentTempC,
+      targetTempC,
+      coasterDropouts,
+      batteryHistory,
+      firmwareVersion,
+      rawBatteryBytes,
+    } = this.state;
+
+    // Find current streak of same charging state
+    const history = batteryHistory || [];
+    let streakStart = history.length > 0 ? history[history.length - 1] : null;
+    for (let i = history.length - 1; i >= 0; i--) {
+      if (history[i].isCharging === isCharging) {
+        streakStart = history[i];
+      } else {
+        break;
+      }
+    }
+
+    let ratePerHour = null;
+    let elapsedMinutes = 0;
+    let deltaPercent = 0;
+
+    if (streakStart && batteryPercent !== null) {
+      elapsedMinutes = (Date.now() - streakStart.ts) / 60000;
+      deltaPercent = batteryPercent - streakStart.percent;
+      if (elapsedMinutes >= 3) {
+        ratePerHour = (deltaPercent / elapsedMinutes) * 60;
+      }
+    }
+
+    const findings = [];
+    let statusLevel = 'good'; // 'good' | 'warn' | 'bad'
+    let summaryTitle = 'Battery & Coaster Operating Normally';
+
+    if (batteryPercent === null) {
+      return {
+        statusLevel: 'idle',
+        summaryTitle: 'Connect mug to run diagnostics',
+        rateText: '--',
+        elapsedMinutes: 0,
+        deltaPercent: 0,
+        coasterDropouts: 0,
+        liquidLevel,
+        firmwareVersion,
+        rawBatteryBytes,
+        findings: ['Tap "Connect Ember Mug" above to inspect live battery & coaster health.'],
+      };
+    }
+
+    // 1. Check if mug thinks it has liquid while on the coaster
+    if (isCharging && liquidState !== 1 && liquidState !== 0) {
+      statusLevel = 'warn';
+      summaryTitle = 'Slow/Stalled Charge: Mug Detects Liquid Inside';
+      findings.push(
+        `Your mug reports state "${LIQUID_STATES[liquidState]?.label || liquidState}" (Liquid Level: ${
+          liquidLevel ?? 'N/A'
+        }) instead of "Empty" while on the coaster. When the mug detects liquid—or even a thin film of moisture/coffee residue inside—it diverts coaster power to the heater circuit instead of charging the battery, which stalls the battery right around 50%–55%.`
+      );
+    }
+
+    // 2. Check coaster contact dropouts
+    if (coasterDropouts > 0) {
+      statusLevel = 'warn';
+      summaryTitle = 'Intermittent Coaster Contact Detected';
+      findings.push(
+        `Detected ${coasterDropouts} coaster power dropout(s) this session. A sticky spring-loaded gold pogo pin on the coaster or residue on the bottom gold rings is interrupting the charge current.`
+      );
+    }
+
+    // 3. Check stalled or slow charging on coaster
+    if (isCharging && batteryPercent < 95 && elapsedMinutes >= 10 && (ratePerHour === null || ratePerHour < 12)) {
+      statusLevel = 'warn';
+      if (summaryTitle === 'Battery & Coaster Operating Normally') {
+        summaryTitle = `Charge Stalled Around ${batteryPercent}%`;
+      }
+      findings.push(
+        `Over the last ${Math.round(elapsedMinutes)} min on the coaster, battery changed by ${
+          deltaPercent >= 0 ? `+${deltaPercent}%` : `${deltaPercent}%`
+        } (${ratePerHour !== null ? `${ratePerHour.toFixed(1)}%/hr` : '0%/hr'} vs normal +35–45%/hr when empty).`
+      );
+      findings.push(
+        `Why it stalls around ~52%: At ~50% charge, the internal Li-ion cell voltage reaches ~3.85V. If one coaster pogo pin has high contact resistance (or the BMS fuel gauge IC froze), current stops flowing or reporting past ~52%.`
+      );
+    }
+
+    if (findings.length === 0) {
+      if (isCharging) {
+        findings.push(
+          `Mug is on the charging coaster (${batteryPercent}%). ${
+            elapsedMinutes >= 3
+              ? `Tracked ${deltaPercent >= 0 ? `+${deltaPercent}%` : `${deltaPercent}%`} over ${Math.round(
+                  elapsedMinutes
+                )} min.`
+              : 'Tracking charge velocity (needs ~3–5 min of data)...'
+          }`
+        );
+      } else {
+        findings.push(`Mug is running on internal battery (${batteryPercent}%). Place on coaster to test charging health.`);
+      }
+    }
+
+    const rateText =
+      ratePerHour !== null
+        ? `${ratePerHour >= 0 ? '+' : ''}${ratePerHour.toFixed(1)}% / hr (${deltaPercent >= 0 ? '+' : ''}${deltaPercent}% in ${Math.round(elapsedMinutes)}m)`
+        : elapsedMinutes >= 1
+        ? `0% change in ${Math.round(elapsedMinutes)}m`
+        : 'Collecting samples...';
+
+    return {
+      statusLevel,
+      summaryTitle,
+      rateText,
+      elapsedMinutes,
+      deltaPercent,
+      coasterDropouts: coasterDropouts || 0,
+      liquidLevel,
+      liquidStateLabel: LIQUID_STATES[liquidState]?.label || 'Unknown',
+      firmwareVersion: firmwareVersion || 'Unknown',
+      rawBatteryBytes: rawBatteryBytes || '--',
+      findings,
+    };
   }
 
   /**

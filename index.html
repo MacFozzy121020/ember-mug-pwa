@@ -160,6 +160,51 @@
       <div id="presets-grid" class="presets-grid"></div>
     </section>
 
+    <!-- Battery & Coaster Health Diagnostics Card -->
+    <section class="control-card">
+      <div class="card-header">
+        <div>
+          <h2>Battery &amp; Coaster Diagnostics</h2>
+          <p class="card-subtitle">Live charge rate, pin contact &amp; BMS health</p>
+        </div>
+        <span id="batt-diag-badge" class="diag-badge idle">Checking...</span>
+      </div>
+
+      <div class="diag-metrics-grid">
+        <div class="diag-metric-box">
+          <span class="diag-metric-label">Charge Velocity</span>
+          <strong id="diag-charge-rate">--</strong>
+        </div>
+        <div class="diag-metric-box">
+          <span class="diag-metric-label">Coaster Contact</span>
+          <strong id="diag-coaster-dropouts">0 dropouts</strong>
+        </div>
+        <div class="diag-metric-box">
+          <span class="diag-metric-label">Liquid Sensor</span>
+          <strong id="diag-liquid-level">--</strong>
+        </div>
+        <div class="diag-metric-box">
+          <span class="diag-metric-label">Firmware / Raw</span>
+          <strong id="diag-raw-info">--</strong>
+        </div>
+      </div>
+
+      <div id="batt-diag-findings" class="diag-findings">
+        <p>Connect your mug to inspect battery and coaster charging telemetry.</p>
+      </div>
+
+      <details class="diagnostics-drawer">
+        <summary>
+          <span>How to Fix Battery Stuck Around ~50%</span>
+        </summary>
+        <div class="batt-fix-guide">
+          <p><strong>1. Empty &amp; Wipe the Inside (Heater Power Split):</strong> If your mug shows <em>Cold</em> or <em>Heating</em> instead of <em>Empty</em> while on the coaster, it diverts coaster power to the heater element instead of charging the battery—causing charge to stall around 48%–55%. Empty and dry the inside so the state reads <strong>Empty</strong>.</p>
+          <p><strong>2. Check the 2 Gold Coaster Pogo Pins:</strong> Unplug the coaster and press both gold pins with your finger. Both should sit at equal height and spring back up firmly. Wipe the pins and the gold rings on the mug base with rubbing alcohol.</p>
+          <p><strong>3. Reset the Mug's Fuel Gauge IC (14s Hard Reset):</strong> If the battery % is frozen due to BMS calibration drift, hold the power button on the bottom of the mug for <strong>14 seconds</strong> (past blue and yellow) until the LED flashes <strong>red</strong>, then release and place it back on the coaster.</p>
+        </div>
+      </details>
+    </section>
+
     <!-- Google Pixel Connection Stability & Diagnostics -->
     <section class="control-card">
       <div class="card-header">
