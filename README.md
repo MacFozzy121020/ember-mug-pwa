@@ -11,7 +11,6 @@ A lightweight, zero-dependency Progressive Web App (PWA) for controlling your **
   - Serialized GATT request queue to prevent Android BLE `GATT_ERROR` / status 133 drops.
   - Subscribes to mug push notifications (`fc540012`) alongside an active 6-second keep-alive poll so Pixel doesn't disconnect idle GATT links.
   - Automatic background reconnection if the Bluetooth connection drops.
-- **Built-in Simulator:** Test the full interface without hardware using **Try Simulator**.
 
 ## Hosting on GitHub Pages (Recommended for Pixel)
 1. Push this repository to GitHub.

@@ -127,15 +127,6 @@ class EmberControllerApp {
       }
     });
 
-    // Demo Simulator button
-    this.els.demoBtn.addEventListener('click', () => {
-      if (this.demoMode) {
-        this._stopDemoMode();
-      } else {
-        this._startDemoMode();
-      }
-    });
-
     // Unit Toggle
     this.els.unitToggleC.addEventListener('click', () => this.setUnit('C'));
     this.els.unitToggleF.addEventListener('click', () => this.setUnit('F'));
